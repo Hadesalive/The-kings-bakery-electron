@@ -49,6 +49,7 @@ import {
   MenuItemCustomOption,
 } from '../utils/database';
 import { useAuth } from '../contexts/AuthContext';
+import MenuItemImage from '../components/MenuItemImage';
 
 interface CartItem {
   menuItem: MenuItemType;
@@ -445,30 +446,7 @@ function POS() {
                           overflow: 'hidden',
                         }}
                       >
-                        {item.image_path ? (
-                          <Box
-                            component="img"
-                            src={(() => {
-                              const imgPath = item.image_path!;
-                              if (imgPath.startsWith('media://')) return imgPath;
-                              if (imgPath.startsWith('data:')) return imgPath;
-                              const filename = imgPath.includes('/') || imgPath.includes('\\')
-                                ? imgPath.split(/[/\\]/).pop() || imgPath
-                                : imgPath;
-                              return `media://${filename}`;
-                            })()}
-                            alt={item.name}
-                            sx={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover',
-                            }}
-                          />
-                        ) : (
-                          <Typography variant="h2" sx={{ opacity: 0.2, fontWeight: 700, fontSize: '56px' }}>
-                            {item.name.charAt(0)}
-                          </Typography>
-                        )}
+                        <MenuItemImage imagePath={item.image_path} name={item.name} fallbackVariant="letter" />
                       </Box>
                       <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', p: 2, justifyContent: 'space-between' }}>
                         <Box>

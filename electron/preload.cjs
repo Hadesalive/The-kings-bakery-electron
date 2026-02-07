@@ -102,6 +102,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update: (key, value) => ipcRenderer.invoke('settings:update', key, value),
     updateMultiple: (settings) => ipcRenderer.invoke('settings:updateMultiple', settings),
   },
+
+  // Sync handlers
+  sync: {
+    push: () => ipcRenderer.invoke('sync:push'),
+    pull: () => ipcRenderer.invoke('sync:pull'),
+    full: () => ipcRenderer.invoke('sync:full'),
+    testConnection: () => ipcRenderer.invoke('sync:testConnection'),
+    getLastSync: () => ipcRenderer.invoke('sync:getLastSync'),
+    getImageDiagnostics: () => ipcRenderer.invoke('sync:getImageDiagnostics'),
+  },
 });
 
 console.log('Preload script loaded, electronAPI exposed');

@@ -68,8 +68,8 @@ interface Window {
       create: (tableData: any) => Promise<any>;
       update: (id: number, tableData: any) => Promise<any>;
       delete: (id: number) => Promise<boolean>;
-    updateStatus: (id: number, status: string) => Promise<any>;
-  };
+      updateStatus: (id: number, status: string) => Promise<any>;
+    };
   
   // Print handlers
   print: {
@@ -98,6 +98,23 @@ interface Window {
     get: (key: string) => Promise<any | null>;
     update: (key: string, value: string) => Promise<any>;
     updateMultiple: (settings: Array<{ key: string; value: string }>) => Promise<{ success: boolean }>;
+  };
+
+  // Sync handlers
+  sync: {
+    push: () => Promise<{ pushed: number; imagesUploaded?: number; imagesSkipped?: number; imagesTotalInDb?: number; imagesDeletedFromStorage?: number; errors: { table: string; message: string }[] }>;
+    pull: () => Promise<{ pulled: number; imagesDownloaded?: number; errors: { table: string; message: string }[] }>;
+    full: () => Promise<{ pushed: number; pulled: number; errors: { table: string; message: string }[] }>;
+    testConnection: () => Promise<{ success: boolean }>;
+    getLastSync: () => Promise<string | null>;
+    getImageDiagnostics: () => Promise<{
+      mediaPath: string | null;
+      mediaPathExists: boolean;
+      filesInMediaFolder: string[];
+      menuItemsWithImages: number;
+      imagePathsFromDb: string[];
+      matchingFiles: string[];
+    }>;
   };
 };
 }

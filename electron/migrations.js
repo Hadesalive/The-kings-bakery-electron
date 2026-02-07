@@ -597,6 +597,39 @@ export const migrations = [
       console.log('Cannot remove user_id column (SQLite limitation)');
       db.exec(`DROP INDEX IF EXISTS idx_orders_user_id;`);
     }
+  },
+  {
+    version: 8,
+    up: (db) => {
+      // Add Supabase sync settings (user configures in Settings > Cloud Sync)
+      const syncSettings = [
+        { key: 'supabase_url', value: '', description: 'Supabase project URL', category: 'sync' },
+        { key: 'supabase_service_key', value: '', description: 'Supabase service role key (Project Settings > API)', category: 'sync' },
+      ];
+      syncSettings.forEach((s) => {
+        const exists = db.prepare('SELECT id FROM settings WHERE key = ?').get(s.key);
+        if (!exists) {
+          db.prepare('INSERT INTO settings (key, value, description, category) VALUES (?, ?, ?, ?)').run(s.key, s.value, s.description, s.category);
+        }
+      });
+    },
+    down: (db) => {
+      db.prepare("DELETE FROM settings WHERE key IN ('supabase_url', 'supabase_service_key', 'supabase_last_sync')").run();
+    }
+  },
+  {
+    version: 9,
+    up: (db) => {
+      const exists = db.prepare('SELECT id FROM settings WHERE key = ?').get('sync_auto_interval');
+      if (!exists) {
+        db.prepare(
+          "INSERT INTO settings (key, value, description, category) VALUES ('sync_auto_interval', 'off', 'Auto-sync interval (Push to cloud): off, 1, 5, 15, 30 minutes', 'sync')"
+        ).run();
+      }
+    },
+    down: (db) => {
+      db.prepare("DELETE FROM settings WHERE key = 'sync_auto_interval'").run();
+    }
   }
 ];
 

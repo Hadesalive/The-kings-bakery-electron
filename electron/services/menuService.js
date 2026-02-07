@@ -72,53 +72,18 @@ export async function createMenuItem(itemData) {
       throw new Error('Valid price is required');
     }
 
-    // Check if updated_at column exists and add it if missing
-    try {
-      const tableInfo = dbQuery("PRAGMA table_info(menu_items)");
-      const hasUpdatedAt = Array.isArray(tableInfo) && tableInfo.some(col => col.name === 'updated_at');
-      
-      if (!hasUpdatedAt) {
-        // Add the column if it doesn't exist
-        dbQuery("ALTER TABLE menu_items ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP");
-      }
-    } catch (err) {
-      console.error('Error checking/adding updated_at column:', err);
-      // Continue anyway - will try without updated_at if needed
-    }
-
-    // Try with updated_at first, fallback to without it
-    let insertQuery, insertParams;
-    try {
-      insertQuery = `INSERT INTO menu_items (name, description, price, category, image_path, is_available, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`;
-      insertParams = [
-        name.trim(),
-        description?.trim() || null,
-        price,
-        category?.trim() || null,
-        image_path || null,
-        is_available ? 1 : 0,
-      ];
-      const result = dbQuery(insertQuery, insertParams);
-      return await getMenuItemById(result.lastInsertRowid);
-    } catch (err) {
-      // If that fails, try without updated_at
-      if (err.message && err.message.includes('updated_at')) {
-        insertQuery = `INSERT INTO menu_items (name, description, price, category, image_path, is_available, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`;
-        insertParams = [
-          name.trim(),
-          description?.trim() || null,
-          price,
-          category?.trim() || null,
-          image_path || null,
-          is_available ? 1 : 0,
-        ];
-        const result = dbQuery(insertQuery, insertParams);
-        return await getMenuItemById(result.lastInsertRowid);
-      }
-      throw err;
-    }
+    const insertQuery = `INSERT INTO menu_items (name, description, price, category, image_path, is_available, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`;
+    const insertParams = [
+      name.trim(),
+      description?.trim() || null,
+      price,
+      category?.trim() || null,
+      image_path || null,
+      is_available ? 1 : 0,
+    ];
+    const result = dbQuery(insertQuery, insertParams);
+    return await getMenuItemById(result.lastInsertRowid);
   } catch (error) {
     console.error('Error creating menu item:', error);
     if (error.message.includes('required') || error.message.includes('Valid')) {

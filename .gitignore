@@ -12,6 +12,7 @@ dist
 dist-electron
 .DS_Store
 *.local
+.env
 
 # Editor directories and files
 .vscode/*
@@ -30,6 +31,7 @@ dist-electron
 
 # Build
 build
+electron/sync-config.generated.cjs
 out
 dist-electron
 release

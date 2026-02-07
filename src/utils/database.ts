@@ -1142,3 +1142,60 @@ export const updateSettings = async (settings: { key: string; value: string }[])
   }
 };
 
+// Cloud Sync (Supabase)
+export const syncPush = async (): Promise<{
+  pushed: number;
+  imagesUploaded?: number;
+  imagesSkipped?: number;
+  imagesTotalInDb?: number;
+  imagesDeletedFromStorage?: number;
+  errors: { table: string; message: string }[];
+}> => {
+  if (window.electronAPI?.sync?.push) {
+    return await window.electronAPI.sync.push();
+  }
+  throw new Error('Sync not available');
+};
+
+export const syncPull = async (): Promise<{ pulled: number; imagesDownloaded?: number; errors: { table: string; message: string }[] }> => {
+  if (window.electronAPI?.sync?.pull) {
+    return await window.electronAPI.sync.pull();
+  }
+  throw new Error('Sync not available');
+};
+
+export const syncFull = async (): Promise<{ pushed: number; pulled: number; errors: { table: string; message: string }[] }> => {
+  if (window.electronAPI?.sync?.full) {
+    return await window.electronAPI.sync.full();
+  }
+  throw new Error('Sync not available');
+};
+
+export const syncTestConnection = async (): Promise<{ success: boolean }> => {
+  if (window.electronAPI?.sync?.testConnection) {
+    return await window.electronAPI.sync.testConnection();
+  }
+  throw new Error('Sync not available');
+};
+
+export const getLastSyncTime = async (): Promise<string | null> => {
+  if (window.electronAPI?.sync?.getLastSync) {
+    return await window.electronAPI.sync.getLastSync();
+  }
+  return null;
+};
+
+export const getImageSyncDiagnostics = async (): Promise<{
+  mediaPath: string | null;
+  mediaPathExists: boolean;
+  filesInMediaFolder: string[];
+  menuItemsWithImages: number;
+  imagePathsFromDb: string[];
+  matchingFiles: string[];
+}> => {
+  if (window.electronAPI?.sync?.getImageDiagnostics) {
+    return await window.electronAPI.sync.getImageDiagnostics();
+  }
+  throw new Error('Sync not available');
+};
+

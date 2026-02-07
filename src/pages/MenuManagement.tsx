@@ -33,6 +33,7 @@ import {
   XMarkIcon,
   FolderIcon,
 } from '@heroicons/react/24/outline';
+import MenuItemImage from '../components/MenuItemImage';
 import {
   getAllMenuItems,
   addMenuItem,
@@ -66,6 +67,7 @@ function MenuManagement() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
 
@@ -133,13 +135,14 @@ function MenuManagement() {
       });
       // Convert image path to media:// protocol URL for display
       if (item.image_path) {
-        // If it's already just a filename, use it directly; otherwise extract filename
-        const filename = item.image_path.includes('/') || item.image_path.includes('\\') 
+        const filename = item.image_path.includes('/') || item.image_path.includes('\\')
           ? item.image_path.split(/[/\\]/).pop() || item.image_path
           : item.image_path;
         setImagePreview(`media://${filename}`);
+        setImageLoadFailed(false);
       } else {
         setImagePreview(null);
+        setImageLoadFailed(false);
       }
       setImageFile(null);
       
@@ -193,6 +196,7 @@ function MenuManagement() {
       });
       setImagePreview(null);
       setImageFile(null);
+      setImageLoadFailed(false);
       setHasSizes(false);
       setHasOptions(false);
       setSizes([]);
@@ -213,6 +217,7 @@ function MenuManagement() {
     });
     setImagePreview(null);
     setImageFile(null);
+    setImageLoadFailed(false);
     setHasSizes(false);
     setHasOptions(false);
     setSizes([]);
@@ -231,6 +236,7 @@ function MenuManagement() {
         return;
       }
       setImageFile(file);
+      setImageLoadFailed(false);
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -242,6 +248,7 @@ function MenuManagement() {
   const handleRemoveImage = () => {
     setImageFile(null);
     setImagePreview(null);
+    setImageLoadFailed(true);
   };
 
   const handleOpenCategoryDialog = (category?: Category) => {
@@ -393,6 +400,11 @@ function MenuManagement() {
 
       setUploadingImage(true);
       let imagePath = editingItem?.image_path || undefined;
+
+      // Clear broken image reference if load failed or user removed it
+      if (imageLoadFailed && !imageFile) {
+        imagePath = undefined;
+      }
 
       // Upload image if a new one was selected
       if (imageFile) {
@@ -830,29 +842,7 @@ function MenuManagement() {
                     },
                   }}
                 >
-                  {item.image_path ? (
-                    <Box
-                      component="img"
-                      src={(() => {
-                        const imgPath = item.image_path;
-                        if (imgPath.startsWith('media://')) return imgPath;
-                        if (imgPath.startsWith('data:')) return imgPath;
-                        // If it's already just a filename, use it directly; otherwise extract filename
-                        const filename = imgPath.includes('/') || imgPath.includes('\\')
-                          ? imgPath.split(/[/\\]/).pop() || imgPath
-                          : imgPath;
-                        return `media://${filename}`;
-                      })()}
-                      alt={item.name}
-                      sx={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      }}
-                    />
-                  ) : (
-                    <PhotoIcon style={{ width: 64, height: 64, opacity: 0.3 }} />
-                  )}
+                  <MenuItemImage imagePath={item.image_path} name={item.name} fallbackVariant="icon" />
                   <Chip
                     label={item.is_available ? 'Available' : 'Unavailable'}
                     size="small"
@@ -1178,6 +1168,10 @@ function MenuManagement() {
                       return `media://${filename}`;
                     })())}
                     alt="Preview"
+                    onError={() => {
+                      setImagePreview(null);
+                      setImageLoadFailed(true);
+                    }}
                     sx={{
                       width: '100%',
                       maxHeight: 200,

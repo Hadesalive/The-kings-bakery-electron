@@ -33,6 +33,10 @@ import {
   PlusIcon,
   PencilIcon,
   TrashIcon,
+  CloudArrowUpIcon,
+  CloudArrowDownIcon,
+  ArrowsRightLeftIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline';
 import PageHeader from '../components/Layout/PageHeader';
 import {
@@ -42,6 +46,13 @@ import {
   deleteUser,
   getAllSettings,
   updateSettings,
+  updateSetting,
+  syncPush,
+  syncPull,
+  syncFull,
+  syncTestConnection,
+  getLastSyncTime,
+  getImageSyncDiagnostics,
   User,
   Setting,
 } from '../utils/database';
@@ -84,6 +95,10 @@ function Settings() {
     full_name: '',
     email: '',
   });
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [syncConfig, setSyncConfig] = useState({ supabase_url: '', supabase_service_key: '' });
+  const [syncAutoInterval, setSyncAutoInterval] = useState<string>('off');
 
   useEffect(() => {
     loadData();
@@ -98,12 +113,132 @@ function Settings() {
       ]);
       setUsers(usersData);
       setSettings(settingsData);
+
+      // Extract sync config for Cloud Sync tab
+      const urlSetting = settingsData.find((s) => s.key === 'supabase_url');
+      const keySetting = settingsData.find((s) => s.key === 'supabase_service_key');
+      const autoIntervalSetting = settingsData.find((s) => s.key === 'sync_auto_interval');
+      setSyncConfig({
+        supabase_url: urlSetting?.value || '',
+        supabase_service_key: keySetting?.value || '',
+      });
+      setSyncAutoInterval(autoIntervalSetting?.value || 'off');
+
+      const lastSyncTime = await getLastSyncTime();
+      setLastSync(lastSyncTime);
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveSyncConfig = async () => {
+    try {
+      await updateSettings([
+        { key: 'supabase_url', value: syncConfig.supabase_url },
+        { key: 'supabase_service_key', value: syncConfig.supabase_service_key },
+      ]);
+      setError(null);
+      alert('Sync configuration saved!');
+    } catch (err: any) {
+      setError(err.message || 'Failed to save sync config');
+    }
+  };
+
+  const handleTestConnection = async () => {
+    try {
+      await handleSaveSyncConfig();
+      setSyncLoading(true);
+      setError(null);
+      await syncTestConnection();
+      alert('Connection successful! Supabase is configured correctly.');
+    } catch (err: any) {
+      setError(err.message || 'Connection failed');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleSyncPush = async () => {
+    try {
+      await handleSaveSyncConfig();
+      setSyncLoading(true);
+      setError(null);
+      const result = await syncPush();
+      setLastSync(new Date().toISOString());
+      let imgMsg = '';
+      if (result.imagesUploaded) {
+        imgMsg = ` ${result.imagesUploaded} images uploaded.`;
+      } else if (result.imagesUploaded === 0 && (result.imagesSkipped ?? 0) > 0) {
+        imgMsg = ` 0 images uploaded (${result.imagesSkipped} not found locally - run "Check image sync" to diagnose).`;
+      } else if (result.imagesUploaded === 0 && (result.imagesTotalInDb ?? 0) > 0) {
+        imgMsg = ` 0 images uploaded (${result.imagesTotalInDb} in DB but none found locally - run "Check image sync" to diagnose).`;
+      }
+      const deletedImg = (result as { imagesDeletedFromStorage?: number }).imagesDeletedFromStorage;
+      if (deletedImg) imgMsg += ` ${deletedImg} orphaned images removed from cloud.`;
+      alert(`Sync complete! ${result.pushed} records pushed to cloud.${imgMsg}`);
+      loadData();
+    } catch (err: any) {
+      setError(err.message || 'Push failed');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleCheckImageSync = async () => {
+    try {
+      const d = await getImageSyncDiagnostics();
+      const msg = [
+        `Media folder: ${d.mediaPath || 'N/A'}`,
+        `Folder exists: ${d.mediaPathExists}`,
+        `Menu items with images: ${d.menuItemsWithImages}`,
+        `Files in media folder: ${d.filesInMediaFolder.length}`,
+        d.filesInMediaFolder.length > 0 ? `  → ${d.filesInMediaFolder.slice(0, 10).join(', ')}${d.filesInMediaFolder.length > 10 ? '...' : ''}` : '',
+        `DB image_paths: ${d.imagePathsFromDb.length ? d.imagePathsFromDb.slice(0, 5).join(', ') + (d.imagePathsFromDb.length > 5 ? '...' : '') : 'none'}`,
+        `Files that match (would upload): ${d.matchingFiles.length}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      alert(msg);
+    } catch (err: any) {
+      setError(err.message || 'Failed to get diagnostics');
+    }
+  };
+
+  const handleSyncPull = async () => {
+    if (!window.confirm('This will replace local data with cloud data. Continue?')) return;
+    try {
+      await handleSaveSyncConfig();
+      setSyncLoading(true);
+      setError(null);
+      const result = await syncPull();
+      setLastSync(new Date().toISOString());
+      const imgMsg = result.imagesDownloaded ? ` ${result.imagesDownloaded} images downloaded.` : '';
+      alert(`Sync complete! ${result.pulled} records pulled from cloud.${imgMsg}`);
+      loadData();
+    } catch (err: any) {
+      setError(err.message || 'Pull failed');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleSyncFull = async () => {
+    try {
+      await handleSaveSyncConfig();
+      setSyncLoading(true);
+      setError(null);
+      await syncFull();
+      setLastSync(new Date().toISOString());
+      alert('Full sync complete! Local data pushed to cloud and cloud data pulled to local.');
+      loadData();
+    } catch (err: any) {
+      setError(err.message || 'Sync failed');
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -223,14 +358,16 @@ function Settings() {
     setSettings(prev => prev.map(s => s.key === key ? { ...s, value } : s));
   };
 
-  const groupedSettings = settings.reduce((acc, setting) => {
-    const category = setting.category || 'general';
-    if (!acc[category]) {
-      acc[category] = [];
-    }
-    acc[category].push(setting);
-    return acc;
-  }, {} as Record<string, Setting[]>);
+  const groupedSettings = settings
+    .filter((s) => (s.category || 'general') !== 'sync')
+    .reduce((acc, setting) => {
+      const category = setting.category || 'general';
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(setting);
+      return acc;
+    }, {} as Record<string, Setting[]>);
 
   if (loading) {
     return (
@@ -261,6 +398,7 @@ function Settings() {
         <Tabs value={tabValue} onChange={handleTabChange} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tab label="Users" />
           <Tab label="System Settings" />
+          <Tab label="Cloud Sync" />
         </Tabs>
 
         <Box sx={{ flex: 1, overflow: 'auto' }}>
@@ -381,6 +519,122 @@ function Settings() {
                     </Grid>
                   ))}
                 </Grid>
+              </CardContent>
+            </Card>
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={2}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 3 }}>
+                  Supabase Cloud Sync
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Sync your POS data with Supabase for backup or multi-device access. Configure your Supabase project
+                  credentials below.
+                </Typography>
+
+                <Grid container spacing={3} sx={{ mb: 3 }}>
+                  <Grid item xs={12}>
+                    <TextField
+                      label="Supabase Project URL"
+                      placeholder="https://xxxxx.supabase.co"
+                      value={syncConfig.supabase_url}
+                      onChange={(e) => setSyncConfig((c) => ({ ...c, supabase_url: e.target.value }))}
+                      fullWidth
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      label="Supabase Service Role Key"
+                      placeholder="eyJhbGciOiJIUzI1NiIs..."
+                      type="password"
+                      value={syncConfig.supabase_service_key}
+                      onChange={(e) => setSyncConfig((c) => ({ ...c, supabase_service_key: e.target.value }))}
+                      fullWidth
+                      size="small"
+                      helperText="Find in Supabase Dashboard → Project Settings → API → service_role (secret)"
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Auto-sync (Push to cloud)</InputLabel>
+                      <Select
+                        value={syncAutoInterval}
+                        label="Auto-sync (Push to cloud)"
+                        onChange={async (e) => {
+                          const v = e.target.value;
+                          setSyncAutoInterval(v);
+                          await updateSetting('sync_auto_interval', v);
+                        }}
+                      >
+                        <MenuItem value="off">Off</MenuItem>
+                        <MenuItem value="1">Every 1 minute</MenuItem>
+                        <MenuItem value="5">Every 5 minutes</MenuItem>
+                        <MenuItem value="15">Every 15 minutes</MenuItem>
+                        <MenuItem value="30">Every 30 minutes</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+                  <Button
+                    variant="outlined"
+                    onClick={handleTestConnection}
+                    disabled={syncLoading || !syncConfig.supabase_url || !syncConfig.supabase_service_key}
+                    startIcon={
+                      syncLoading ? (
+                        <CircularProgress size={18} />
+                      ) : (
+                        <CheckCircleIcon style={{ width: 18, height: 18 }} />
+                      )
+                    }
+                  >
+                    Test Connection
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={handleSyncPush}
+                    disabled={syncLoading || !syncConfig.supabase_url || !syncConfig.supabase_service_key}
+                    startIcon={<CloudArrowUpIcon style={{ width: 18, height: 18 }} />}
+                  >
+                    Push to Cloud
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={handleSyncPull}
+                    disabled={syncLoading || !syncConfig.supabase_url || !syncConfig.supabase_service_key}
+                    startIcon={<CloudArrowDownIcon style={{ width: 18, height: 18 }} />}
+                  >
+                    Pull from Cloud
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleSyncFull}
+                    disabled={syncLoading || !syncConfig.supabase_url || !syncConfig.supabase_service_key}
+                    startIcon={<ArrowsRightLeftIcon style={{ width: 18, height: 18 }} />}
+                  >
+                    Full Sync
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="inherit"
+                    onClick={handleCheckImageSync}
+                    disabled={syncLoading}
+                  >
+                    Check image sync
+                  </Button>
+                </Box>
+
+                {lastSync && (
+                  <Typography variant="body2" color="text.secondary">
+                    Last synced: {new Date(lastSync).toLocaleString()}
+                  </Typography>
+                )}
               </CardContent>
             </Card>
           </TabPanel>

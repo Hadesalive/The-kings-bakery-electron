@@ -15,6 +15,7 @@ import * as optionService from './services/optionService.js';
 import * as addonService from './services/addonService.js';
 import * as tableService from './services/tableService.js';
 import * as printService from './services/printService.js';
+import * as syncService from './services/syncService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -202,6 +203,31 @@ function stopProductionServer() {
 // Initialize database
 let db = null;
 
+// Auto-sync interval handle (cleared when off or changed)
+let autoSyncIntervalId = null;
+
+function startAutoSync() {
+  if (autoSyncIntervalId) {
+    clearInterval(autoSyncIntervalId);
+    autoSyncIntervalId = null;
+  }
+  if (!db) return;
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'sync_auto_interval'").get();
+  const val = (row?.value || 'off').toLowerCase().trim();
+  if (val === 'off' || val === '0' || val === '') return;
+  const mins = parseInt(val, 10);
+  if (![1, 5, 15, 30].includes(mins)) return;
+  const ms = mins * 60 * 1000;
+  autoSyncIntervalId = setInterval(async () => {
+    try {
+      if (!db) return;
+      await syncService.pushToSupabase(db, null, { mediaPath });
+    } catch (err) {
+      console.warn('[Sync] Auto-sync failed:', err.message);
+    }
+  }, ms);
+}
+
 function initDatabase() {
   db = new Database(dbPath);
   
@@ -213,6 +239,9 @@ function initDatabase() {
   
   // Set database instance for services
   setDatabase(db);
+
+  // Start auto-sync if enabled
+  startAutoSync();
 }
 
 // IPC Handlers
@@ -818,10 +847,12 @@ ipcMain.handle('settings:update', async (_event, key, value) => {
     if (!db) throw new Error('Database not initialized');
     const exists = db.prepare('SELECT id FROM settings WHERE key = ?').all(key);
     if (exists.length > 0) {
-      return db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?').run(value, key);
+      db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?').run(value, key);
     } else {
-      return db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, value);
+      db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, value);
     }
+    if (key === 'sync_auto_interval') startAutoSync();
+    return { success: true };
   } catch (error) {
     console.error('Error in settings:update handler:', error);
     throw error;
@@ -831,6 +862,7 @@ ipcMain.handle('settings:update', async (_event, key, value) => {
 ipcMain.handle('settings:updateMultiple', async (_event, settings) => {
   try {
     if (!db) throw new Error('Database not initialized');
+    let syncIntervalChanged = false;
     for (const setting of settings) {
       const exists = db.prepare('SELECT id FROM settings WHERE key = ?').all(setting.key);
       if (exists.length > 0) {
@@ -838,10 +870,73 @@ ipcMain.handle('settings:updateMultiple', async (_event, settings) => {
       } else {
         db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(setting.key, setting.value);
       }
+      if (setting.key === 'sync_auto_interval') syncIntervalChanged = true;
     }
+    if (syncIntervalChanged) startAutoSync();
     return { success: true };
   } catch (error) {
     console.error('Error in settings:updateMultiple handler:', error);
+    throw error;
+  }
+});
+
+// Sync handlers
+ipcMain.handle('sync:push', async () => {
+  try {
+    if (!db) throw new Error('Database not initialized');
+    return await syncService.pushToSupabase(db, null, { mediaPath });
+  } catch (error) {
+    console.error('Error in sync:push handler:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('sync:pull', async () => {
+  try {
+    if (!db) throw new Error('Database not initialized');
+    return await syncService.pullFromSupabase(db, null, { mediaPath });
+  } catch (error) {
+    console.error('Error in sync:pull handler:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('sync:full', async () => {
+  try {
+    if (!db) throw new Error('Database not initialized');
+    return await syncService.fullSync(db, null, { mediaPath });
+  } catch (error) {
+    console.error('Error in sync:full handler:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('sync:testConnection', async () => {
+  try {
+    if (!db) throw new Error('Database not initialized');
+    return await syncService.testConnection(db);
+  } catch (error) {
+    console.error('Error in sync:testConnection handler:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('sync:getLastSync', async () => {
+  try {
+    if (!db) throw new Error('Database not initialized');
+    return syncService.getLastSync(db);
+  } catch (error) {
+    console.error('Error in sync:getLastSync handler:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('sync:getImageDiagnostics', async () => {
+  try {
+    if (!db) throw new Error('Database not initialized');
+    return syncService.getImageSyncDiagnostics(db, mediaPath);
+  } catch (error) {
+    console.error('Error in sync:getImageDiagnostics handler:', error);
     throw error;
   }
 });
@@ -1005,6 +1100,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (autoSyncIntervalId) {
+    clearInterval(autoSyncIntervalId);
+    autoSyncIntervalId = null;
+  }
   stopProductionServer();
   if (db) {
     db.close();
