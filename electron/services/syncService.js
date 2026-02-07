@@ -291,8 +291,11 @@ export async function pushToSupabase(db, onProgress, options = {}) {
     try {
       const rows = db.prepare(`SELECT * FROM ${table}`).all();
       if (rows.length > 0) {
-        const transformed = rows.map((r) => toSupabaseRow(r, table));
+        let transformed = rows.map((r) => toSupabaseRow(r, table));
         const conflictKey = table === 'settings' ? 'key' : 'id';
+        if (table === 'settings') {
+          transformed = transformed.map(({ id, ...rest }) => rest);
+        }
         const { error } = await supabase.from(table).upsert(transformed, {
           onConflict: conflictKey,
           ignoreDuplicates: false,
