@@ -292,8 +292,9 @@ export async function pushToSupabase(db, onProgress, options = {}) {
       const rows = db.prepare(`SELECT * FROM ${table}`).all();
       if (rows.length > 0) {
         const transformed = rows.map((r) => toSupabaseRow(r, table));
+        const conflictKey = table === 'settings' ? 'key' : 'id';
         const { error } = await supabase.from(table).upsert(transformed, {
-          onConflict: 'id',
+          onConflict: conflictKey,
           ignoreDuplicates: false,
         });
         if (error) throw error;
@@ -307,27 +308,49 @@ export async function pushToSupabase(db, onProgress, options = {}) {
 
   // Delete orphaned rows in Supabase (syncs deletes: remove rows we don't have locally)
   // Process in REVERSE order so children are deleted before parents (FK safety)
+  // Settings table uses unique key 'key', not id
   const reverseOrder = [...SYNC_TABLE_ORDER].reverse();
   for (let i = 0; i < reverseOrder.length; i++) {
     const table = reverseOrder[i];
     if (onProgress) onProgress({ table, index: SYNC_TABLE_ORDER.length + i + 1, total: SYNC_TABLE_ORDER.length * 2 });
 
     try {
-      const rows = db.prepare(`SELECT id FROM ${table}`).all();
-      const localIds = rows.map((r) => r.id);
-
-      if (localIds.length > 0) {
-        const { error: delErr } = await supabase
-          .from(table)
-          .delete()
-          .not('id', 'in', `(${localIds.join(',')})`);
-        if (delErr) throw delErr;
+      if (table === 'settings') {
+        const rows = db.prepare('SELECT key FROM settings').all();
+        const localKeys = rows.map((r) => r.key);
+        if (localKeys.length > 0) {
+          const { data: remoteRows } = await supabase.from('settings').select('key');
+          const remoteKeys = (remoteRows || []).map((r) => r.key);
+          const toDelete = remoteKeys.filter((k) => !localKeys.includes(k));
+          if (toDelete.length > 0) {
+            const { error: delErr } = await supabase.from('settings').delete().in('key', toDelete);
+            if (delErr) throw delErr;
+          }
+        } else {
+          const { data: remoteRows } = await supabase.from('settings').select('key');
+          const remoteKeys = (remoteRows || []).map((r) => r.key);
+          if (remoteKeys.length > 0) {
+            const { error: delErr } = await supabase.from('settings').delete().in('key', remoteKeys);
+            if (delErr) throw delErr;
+          }
+        }
       } else {
-        const { data: remoteRows } = await supabase.from(table).select('id');
-        const remoteIds = (remoteRows || []).map((r) => r.id);
-        if (remoteIds.length > 0) {
-          const { error: delErr } = await supabase.from(table).delete().in('id', remoteIds);
+        const rows = db.prepare(`SELECT id FROM ${table}`).all();
+        const localIds = rows.map((r) => r.id);
+
+        if (localIds.length > 0) {
+          const { error: delErr } = await supabase
+            .from(table)
+            .delete()
+            .not('id', 'in', `(${localIds.join(',')})`);
           if (delErr) throw delErr;
+        } else {
+          const { data: remoteRows } = await supabase.from(table).select('id');
+          const remoteIds = (remoteRows || []).map((r) => r.id);
+          if (remoteIds.length > 0) {
+            const { error: delErr } = await supabase.from(table).delete().in('id', remoteIds);
+            if (delErr) throw delErr;
+          }
         }
       }
     } catch (delErr) {
@@ -438,10 +461,17 @@ export async function pullFromSupabase(db, onProgress, options = {}) {
 }
 
 /**
- * Full sync: push local to cloud, then pull cloud to local (merge)
+ * Full sync: push local to cloud, then pull cloud to local.
+ * If local has no data (new machine), skip push and only pull so we don't overwrite cloud with empty.
  */
 export async function fullSync(db, onProgress, options = {}) {
-  await pushToSupabase(db, (p) => onProgress?.({ ...p, phase: 'push' }), options);
+  const menuCount = db.prepare('SELECT COUNT(*) as c FROM menu_items').get()?.c ?? 0;
+  const orderCount = db.prepare('SELECT COUNT(*) as c FROM orders').get()?.c ?? 0;
+  const isEmpty = menuCount === 0 && orderCount === 0;
+
+  if (!isEmpty) {
+    await pushToSupabase(db, (p) => onProgress?.({ ...p, phase: 'push' }), options);
+  }
   return await pullFromSupabase(db, (p) => onProgress?.({ ...p, phase: 'pull' }), options);
 }
 
